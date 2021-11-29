@@ -1,0 +1,162 @@
+import os,sys,re
+
+def setObject(oid, lines):
+   child_lines=[]
+   child_name=''
+   child_oid=''
+   base_i=''
+   kv_array=[]
+   no_of_childs=0
+#   type=AdminConfig.getObjectType(oid)
+
+   for l in lines:
+      l = l.replace('\n', '')
+      # skip comment line
+      if not l or re.match('\s*\#',l):
+         continue
+
+      # read attribute key: value
+      kv = l.split()
+      attr_name = kv[0]
+
+      # count indent
+      i = len(re.match('^\s*', l).group())
+      if not base_i:
+         if re.match('^\([a-zA-Z0-9\.]+\)$', attr_name):
+            continue
+         else:
+            base_i = i
+
+      # if reading child lines:
+      if child_name:
+         if i <= base_i:
+            if no_of_childs == 0 and len(child_lines) > 0:
+               child_oid = AdminConfig.create(child_name, oid, '')
+            setObject(child_oid, child_lines)
+            child_name = ''
+            child_oid = ''
+            child_lines = []
+            no_of_childs=''
+         else:
+            child_lines.append(l)
+            continue
+
+      # child object? (alphanumric:)
+      if re.match('^[a-zA-Z0-9]+:$', attr_name):
+         child_name = attr_name.split(':')[0]
+         # get the object_id and save it. multiple child object is out of scope
+         val=AdminConfig.showAttribute(oid, child_name)
+         if val:
+            no_of_childs = len(val.split())
+            if no_of_childs > 1:
+               print 'multiple child objects currently not supported by this version. sorry.'
+               print oid
+               print child_name
+               sys.exit()
+            else:
+               for child_oid in val.split():
+                  if re.match('^\[.+', child_oid):
+                     child_oid=child_oid[1:]
+                  if re.match('.*\]$', child_oid):
+                     child_oid=child_oid[0:-1]
+         else:
+            no_of_childs = 0
+
+      # child object with no entry (alphanumeric(type):)
+      elif re.match('.+\(.+\):$', attr_name):
+         continue
+      # attribute name value (key value)
+      else:
+         attr_name = re.match('^[a-zA-Z0-9]+', attr_name).group()
+         # read the value(value may include blanks.)
+         j=1
+         attr_value = ''
+         while j < len(kv):
+            if not attr_value:
+               attr_value = kv[j]
+            else:
+               attr_value = attr_value+' '+kv[j]
+            j=j+1
+
+         # save key value set in the array
+         kv_set=[]
+         kv_set.append(attr_name)
+         kv_set.append(attr_value)
+         kv_array.append(kv_set)
+
+      # endif
+   # end of for
+
+   if child_oid:
+      setObject(child_oid, child_lines)
+
+   modifySet = []
+   if oid and kv_array:
+      for kv in kv_array:
+         if kv[1]:
+            modifySet.append(kv)
+        else:
+            # no value to unset
+            AdminConfig.unsetAttributes(oid, kv[0])
+
+      AdminConfig.modify(oid, modifySet)
+#     AdminConfig.save()
+
+   return
+
+
+##### Main #####
+path=''
+oid=''
+argc=len(sys.argv)
+if argc == 0:
+   print 'Configuration_file [Object ID or Containent Path(optional)]'
+   sys.exit()
+elif argc == 2:
+   p2 = sys.argv[1]
+   mo = re.match('^/.+\:.+', p2)
+   if mo:
+      path = mo.group()
+   else:
+      mo = re.match('.*\(.+\)$', p2)
+      if mo:
+         oid = mo.group()
+      else:
+         print 'invalid option. '+p2
+         sys.exit()
+if argc > 2:
+   i=2
+   p=''
+   while i < argc:
+      p=p+' '+sys.argv[i]
+      i=i+1
+   print p+' ignored.'
+
+file = sys.argv[0]
+try:
+    conf = open(file, 'r')
+except:
+   print file+' not found.'
+   sys.exit()
+
+lines = conf.readlines()
+ls = len(lines)
+i=0
+for l in lines:
+   if re.match('^Containment Path:', l):
+      if not path:
+         path = l.split('Containment Path:')[1].strip()
+      lines = lines[i+1:]
+      break
+   i=i+1
+
+if path:
+   oid = AdminConfig.getid(path)
+   if not oid:
+      print p1+' not recognized.'
+      sys.exit()
+
+if oid:
+   setObject(oid, lines)
+else:
+   print 'Object ID or Containent Path not recognized.'
