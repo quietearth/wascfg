@@ -1,1 +1,60 @@
-Hello World!
+#!/bin/ksh
+#<!-- /bin/bash
+usage="Usage: $0 ObjectType|ContainmentPath|ObjectID|All [Scope] [options]\n
+ObjectType: Object Type to display.\n
+Containment Path: Object Path(Begins with '/' followed by object type followed by ':' and path.\n
+Object ID: Object ID format - name(xxxx/xxxxx\|yyyyy.xml#zzzzz_nnnnnnnn)\n
+'All' : Case insesitive. Show all configuration.\n
+Scope:      Scope of the object.\n
+\n
+[options]\n
+ -r    : Recursive mode(show object tree).\n
+ -i    : Show the object specified by the objecit id.\n
+ -s    : Include the scope infomation.\n
+ -p    : wsadmin command prompt.\n
+ -types: Show all Object Types.\n
+\n
+(ObjectType/Containment Path/ObjectID Scope options are order free)\n
+"
+working_dir=$(cd $(dirname $(which $0));pwd)
+parms=$#
+if [[ $parms == 0 ]];then
+   echo $usage
+   exit 0
+elif [[ $1 == '-p' ]];then
+   prompt=1
+fi
+
+while [[ $1 != "" ]]
+do
+   if [[ $(whoami) == 'root' || $(whoami) == 'wasuser1' ]];then
+      if [[ $(expr "$1" : "^.*{.*}$") -gt 2 ]];then  # Object ID
+         options=$options" "$(echo $1|sed s/{/\(/g |sed s/}/\)/g |sed s/!/\|/g |sed s/\+/' '/g)
+      elif [[ $(expr "$1" : "^/[a-zA-Z\.\:\+]*") -gt 2 ]];then # Containment Path
+         options=$options" "$(echo $1 |sed s/\+/' '/g)
+      else
+         options=$options" "$1
+      fi
+   else
+      if [[ $(expr "$1" : "^.*(.*)$") -gt 2 ]];then # Object ID
+         options=$options" "$(echo $1|sed s/\(/{/g |sed s/\)/}/g |sed s/\|/!/g |sed s/' '/\+/g)
+      elif [[ $(expr "$1" : "^/[a-zA-Z\.\:' ']*") -gt 2 ]];then # Containment Path
+         options=$options" "$(echo $1|sed s/' '/\+/g)
+      else
+         options=$options" "$1
+      fi
+   fi
+   shift
+done
+
+if [[ $(whoami) == 'root' || $(whoami) == 'wasuser1' ]];then
+   export FXCKN_LIST=$working_dir/wcexlist.sht
+   if [[ $prompt == 1 ]];then
+      /usr/IBM/WebSphere/AppServer/profiles/Dmgr01/bin/wsadmin.sh -lang jython
+   else
+      /usr/IBM/WebSphere/AppServer/profiles/Dmgr01/bin/wsadmin.sh -lang jython -f $working_dir/gwc.jy $options
+   fi
+else
+   sudo /ulib/joblib/un_command_run.sh su - wasuser1 -c $working_dir/$(basename $0) $options
+fi
+
